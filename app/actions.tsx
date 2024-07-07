@@ -6,13 +6,13 @@ import { ReactNode } from 'react';
 import { generateId } from 'ai';
 
 export interface ServerMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
 export interface ClientMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   display: ReactNode;
 }
 
@@ -22,34 +22,37 @@ export async function continueConversation(
   'use server';
 
   const history = getMutableAIState();
-  const currentHistory = history.get();
+  let currentHistory = history.get();
 
-  console.log("Current history before update:", currentHistory);
+  console.log("Initial history:", JSON.stringify(currentHistory, null, 2));
 
-  // Update the history using the update method
-  history.update((messages: ServerMessage[]) => [
-    ...messages,
-    { role: 'user', content: input }
-  ]);
+  // Prepare the messages for the Bedrock API
+  const apiMessages = currentHistory.filter(msg => msg.role !== 'system');
+  const systemMessage = currentHistory.find(msg => msg.role === 'system');
 
-  const updatedHistory = history.get();
-  console.log("Updated history:", updatedHistory);
+  // Add the new user message
+  apiMessages.push({ role: 'user', content: input });
+
+  console.log("Messages for API:", JSON.stringify(apiMessages, null, 2));
 
   try {
     const result = await streamUI({
       model: bedrock('anthropic.claude-3-5-sonnet-20240620-v1:0'),
-      messages: updatedHistory,
+      messages: apiMessages,
+      system: systemMessage ? systemMessage.content : undefined,
       text: ({ content, done }) => {
         if (done) {
           history.done((messages: ServerMessage[]) => [
             ...messages,
+            { role: 'user', content: input },
             { role: 'assistant', content },
           ]);
         }
-
         return <div>{content}</div>;
       },
     });
+
+    console.log("AI response received");
 
     return {
       id: generateId(),
@@ -58,6 +61,7 @@ export async function continueConversation(
     };
   } catch (error) {
     console.error("Error in continueConversation:", error);
+    console.error("Error details:", JSON.stringify(error, null, 2));
     throw error;
   }
 }
