@@ -2,6 +2,7 @@
 
 import { createAI, getMutableAIState, streamUI } from 'ai/rsc';
 import { bedrock } from '@ai-sdk/amazon-bedrock';
+import { openai } from '@ai-sdk/openai';
 import { ReactNode } from 'react';
 import { generateId } from 'ai';
 
@@ -24,7 +25,7 @@ export async function continueConversation(
   const history = getMutableAIState();
   let currentHistory = history.get();
 
-  console.log("Initial history:", JSON.stringify(currentHistory, null, 2));
+  //console.log("Initial history:", JSON.stringify(currentHistory, null, 2));
 
   // Prepare the messages for the Bedrock API
   const apiMessages = currentHistory.filter(msg => msg.role !== 'system');
@@ -33,11 +34,12 @@ export async function continueConversation(
   // Add the new user message
   apiMessages.push({ role: 'user', content: input });
 
-  console.log("Messages for API:", JSON.stringify(apiMessages, null, 2));
+  //console.log("Messages for API:", JSON.stringify(apiMessages, null, 2));
 
   try {
     const result = await streamUI({
-      model: bedrock('anthropic.claude-3-5-sonnet-20240620-v1:0'),
+      //model: bedrock('anthropic.claude-3-5-sonnet-20240620-v1:0'),
+      model: openai('gpt-3.5-turbo'),
       messages: apiMessages,
       system: systemMessage ? systemMessage.content : undefined,
       text: ({ content, done }) => {
@@ -52,7 +54,7 @@ export async function continueConversation(
       },
     });
 
-    console.log("AI response received");
+    //console.log("AI response received");
 
     return {
       id: generateId(),
