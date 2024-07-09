@@ -6,65 +6,99 @@ import { openai } from '@ai-sdk/openai';
 import { ReactNode } from 'react';
 import { generateId } from 'ai';
 
+// Define a type for the AI model
+type AIModel = ReturnType<typeof bedrock> | ReturnType<typeof openai>;
+
 export interface ServerMessage {
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  content: string | Array<TextPart | ImagePart>;
 }
 
 export interface ClientMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   display: ReactNode;
+  content: string | Array<TextPart | ImagePart>;
 }
 
+export interface TextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface ImagePart {
+  type: 'image';
+  image: string; // Base64 encoded image or URL
+}
+
+// You can easily switch between models by changing this line
+const MODEL: AIModel = bedrock('anthropic.claude-3-5-sonnet-20240620-v1:0');
+
 export async function continueConversation(
-  input: string,
+  input?: string,
+  image?: string
 ): Promise<ClientMessage> {
   'use server';
+
+  const newUserContent: Array<TextPart | ImagePart> = [];
+
+  if (input) {
+    newUserContent.push({ type: 'text', text: input });
+  }
+
+  if (image) {
+    newUserContent.push({ type: 'image', image: image });
+  }
+
+  if (newUserContent.length === 0) {
+    throw new Error('At least one of text input or image must be provided');
+  }
+
+  const newUserMessage: ServerMessage = {
+    role: 'user',
+    content: newUserContent
+  };
 
   const history = getMutableAIState();
   let currentHistory = history.get();
 
-  //console.log("Initial history:", JSON.stringify(currentHistory, null, 2));
-
-  // Prepare the messages for the Bedrock API
   const apiMessages = currentHistory.filter(msg => msg.role !== 'system');
   const systemMessage = currentHistory.find(msg => msg.role === 'system');
 
-  // Add the new user message
-  apiMessages.push({ role: 'user', content: input });
-
-  //console.log("Messages for API:", JSON.stringify(apiMessages, null, 2));
+  apiMessages.push(newUserMessage);
 
   try {
     const result = await streamUI({
-      //model: bedrock('anthropic.claude-3-5-sonnet-20240620-v1:0'),
-      model: openai('gpt-3.5-turbo'),
+      model: MODEL,
       messages: apiMessages,
       system: systemMessage ? systemMessage.content : undefined,
       text: ({ content, done }) => {
         if (done) {
           history.done((messages: ServerMessage[]) => [
             ...messages,
-            { role: 'user', content: input },
-            { role: 'assistant', content },
+            newUserMessage,
+            { role: 'assistant', content: [{ type: 'text', text: content }] },
           ]);
         }
         return <div>{content}</div>;
       },
     });
 
-    //console.log("AI response received");
-
     return {
       id: generateId(),
       role: 'assistant',
       display: result.value,
+      content: [{ type: 'text', text: result.value }]
     };
   } catch (error) {
     console.error("Error in continueConversation:", error);
-    console.error("Error details:", JSON.stringify(error, null, 2));
-    throw error;
+    // Return a user-friendly error message
+    return {
+      id: generateId(),
+      role: 'assistant',
+      display: <div>I'm sorry, but I encountered an error. Please try again.</div>,
+      content: [{ type: 'text', text: "Error: Unable to process the request." }]
+    };
   }
 }
 
@@ -72,6 +106,9 @@ export const AI = createAI<ServerMessage[], ClientMessage[]>({
   actions: {
     continueConversation,
   },
-  initialAIState: [{ role: 'system', content: 'You are a helpful assistant.' }],
+  initialAIState: [{ 
+    role: 'system', 
+    content: 'You are a helpful assistant.'
+  }],
   initialUIState: [],
 });
